@@ -18,7 +18,7 @@ JIRA_BASE_URL = "https://joinhonor.atlassian.net"
 # REST API constants
 SEARCH_API_ENDPOINT = "/rest/api/2/search"
 ISSUES_API_ENDPOINT = "/rest/api/2/issue"
-BOARD_ENDPOINT = "/rest/agile/1.0/board"
+BOARD_API_ENDPOINT = "/rest/agile/1.0/board"
 
 
 class IssueType(Enum):
@@ -43,6 +43,8 @@ class AuthenticatedRequest:
     """Wrapper around `requests` that adds auth header"""
 
     def _headers(self):
+        if not JIRA_EMAIL or not JIRA_TOKEN:
+            raise ValueError("Auth info missing. Please set JIRA_EMAIL and JIRA_TOKEN")
         auth = f"{JIRA_EMAIL}:{JIRA_TOKEN}"
         return {
             "Authorization": f"Basic {b64encode(auth.encode()).decode()}",
@@ -96,7 +98,7 @@ def get_create_metadata(project_key: str | None = None):
         for project in data:
             if project["key"] == project_key:
                 return project
-        raise ValueError(f"{project_key} not found")
+        raise ValueError(f"Could not find a Jira project with key: {project_key}")
     return data
 
 
@@ -105,7 +107,7 @@ def get_board_id(
     board_type: Literal["scrum"] | Literal["kanban"] = "scrum",
 ) -> str:
     # https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/#api-rest-agile-1-0-board-get
-    url = f"{JIRA_BASE_URL}{BOARD_ENDPOINT}"
+    url = f"{JIRA_BASE_URL}{BOARD_API_ENDPOINT}"
     params = {"projectKeyOrId": project_key, "type": board_type}
     data = AuthenticatedRequest().get(url, params=params)
     if len(data["values"]) != 1:
@@ -244,28 +246,24 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if not PROJECT_KEY or not JIRA_TOKEN:
-        print("Set your API token and project in `Config`")
-    project_key = PROJECT_KEY
-
     # Example issue data to help with fields for a new issue
     # pprint(get_issue('DW-216'))
 
     # Validate our enum of issue types + stash the jira ID on the enum values
-    get_issue_types(project_key)
+    get_issue_types(PROJECT_KEY)
 
     if args.list_fields:
         # List all fields that can be set at issue creation time. Fields
         # may differ by project, so this can be useful to learn about the
         # custom field keys.
-        data = get_create_field_metadata(project_key, IssueType.BUG)
+        data = get_create_field_metadata(PROJECT_KEY, IssueType.BUG)
         pprint(data)
         exit()
 
     if args.add_to_sprint:
         print("Getting current sprint...")
         if not args.board_id:
-            args.board_id = get_board_id(project_key)
+            args.board_id = get_board_id(PROJECT_KEY)
         sprint_id = get_current_sprint_id(str(args.board_id))
     else:
         sprint_id = None
@@ -314,7 +312,7 @@ if __name__ == "__main__":
             description += f"\n\n**Platform/URL**: {url}"
 
         kwargs = {
-            "project_key": project_key,
+            "project_key": PROJECT_KEY,
             "issue_type": IssueType.BUG,
             "summary": title,
             "description": description,
